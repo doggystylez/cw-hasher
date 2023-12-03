@@ -55,18 +55,23 @@ jobs:
           exit 78
         fi
 
-    - name: add success label
-      if: success()
-      uses: actions/github-script@v5
-      with:
-        script: |
-          github.rest.issues.addLabels({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: context.issue.number,
-            labels: ['matched']
-          })
+    - name: remove status label
+      run: gh issue edit "$NUMBER" --remove-label "$LABELS"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GH_REPO: ${{ github.repository }}
+        NUMBER: ${{ github.event.issue.number }}
+        LABELS: 'in progress'
   
+    - name: add matched label
+      if: success()
+      run: gh issue edit "$NUMBER" --add-label "$LABELS"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GH_REPO: ${{ github.repository }}
+        NUMBER: ${{ github.event.issue.number }}
+        LABELS: 'matched'
+
     - name: add failed label
       if: failure() && steps.checksum_check.outputs.CHECKSUM_NOT_FOUND != 'true'
       run: gh issue edit "$NUMBER" --add-label "$LABELS"
