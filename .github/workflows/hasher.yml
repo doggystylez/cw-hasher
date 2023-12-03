@@ -1,30 +1,24 @@
 name: compile and check hash
-
 on:
-  workflow_dispatch:
-    inputs:
-      repo_name:
-        description: 'contract repo'
-        required: true
-      commit_hash:
-        description: 'contract commit hash'
-        required: true
-      ref_hash:
-        description: 'contract checksum'
-        required: true
-      docker_image:
-        description: 'compiler image'
-        required: true
-      working_dir:
-        description: 'working directory'
-        required: true
-        default: '.'
+  issues:
+    types: [opened]
 
 jobs:
   build-and-verify:
+    if: contains(github.event.issue.labels.*.name, 'run')
     runs-on: ubuntu-latest
-
     steps:
+    - name: parse issue body for inputs  
+      id: parse
+      env:
+        ISSUE_BODY: ${{ github.event.issue.body }}
+      run: |
+        echo "::set-output name=repo_name::$(echo $ISSUE_BODY | jq -r '.repo_name')"
+        echo "::set-output name=commit_hash::$(echo $ISSUE_BODY | jq -r '.commit_hash')"
+        echo "::set-output name=ref_hash::$(echo $ISSUE_BODY | jq -r '.ref_hash')"
+        echo "::set-output name=docker_image::$(echo $ISSUE_BODY | jq -r '.docker_image')"
+        echo "::set-output name=working_dir::$(echo $ISSUE_BODY | jq -r '.working_dir')"
+  
     - name: checkout specific commit of the repository
       uses: actions/checkout@v3
       with:
@@ -32,6 +26,18 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         ref: ${{ github.event.inputs.commit_hash }} 
         path: 'repo'
+    
+    - name: add status label
+      if: success()
+      uses: actions/github-script@v5
+      with:
+        script: |
+          github.rest.issues.addLabels({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            labels: ['in progress']
+          })
 
     - name: compile code with docker
       run: |
@@ -40,11 +46,50 @@ jobs:
           --mount type=volume,source=registry_cache_${{ env.RUNNER_TRACKING_ID }},target=/usr/local/cargo/registry \
           ${{ github.event.inputs.docker_image }}
 
-    - name: check if input hash is in checksums.txt
+    - name: Check if input hash is in checksums.txt
+      id: checksum_check
       run: |
-        if grep -q "$(echo '${{ github.event.inputs.ref_hash }}' | tr '[:upper:]' '[:lower:]')" "$GITHUB_WORKSPACE/repo/${{ github.event.inputs.working_dir }}/artifacts/checksums.txt"; then
+        CHECKSUM_FILE="$GITHUB_WORKSPACE/repo/${{ github.event.inputs.working_dir }}/artifacts/checksums.txt"
+        if grep -q "$(echo '${{ github.event.inputs.ref_hash }}' | tr '[:upper:]' '[:lower:]')" "$CHECKSUM_FILE"; then
           echo "Reference hash found in checksums.txt"
         else
           echo "Reference hash not found in checksums.txt"
-          exit 1
+          echo "CHECKSUM_NOT_FOUND=true" >> $GITHUB_ENV
+          exit 78
         fi
+
+    - name: add success label
+      if: success()
+      uses: actions/github-script@v5
+      with:
+        script: |
+          github.rest.issues.addLabels({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            labels: ['matched']
+          })
+
+    - name: add failed label
+      if: failure() && steps.checksum_check.outputs.CHECKSUM_NOT_FOUND != 'true'
+      uses: actions/github-script@v5
+      with:
+        script: |
+          github.rest.issues.addLabels({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            labels: ['run failed']
+           })
+
+    - name: add not matched label
+      if: env.CHECKSUM_NOT_FOUND == 'true'
+      uses: actions/github-script@v5
+      with:
+        script: |
+          github.rest.issues.addLabels({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            labels: ['not matched']
+           })
