@@ -1,0 +1,50 @@
+name: compile and check hash
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo_name:
+        description: 'contract repo'
+        required: true
+      commit_hash:
+        description: 'contract commit hash'
+        required: true
+      ref_hash:
+        description: 'contract checksum'
+        required: true
+      docker_image:
+        description: 'compiler image'
+        required: true
+      working_dir:
+        description: 'working directory'
+        required: true
+        default: '.'
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: checkout specific commit of the repository
+      uses: actions/checkout@v3
+      with:
+        repository: ${{ github.event.inputs.repo_name }}
+        token: ${{ secrets.GITHUB_TOKEN }}
+        ref: ${{ github.event.inputs.commit_hash }} 
+        path: 'repo'
+
+    - name: compile code with docker
+      run: |
+        docker run --rm -v "$GITHUB_WORKSPACE/repo/${{ github.event.inputs.working_dir }}":/code \
+          --mount type=volume,source=code_cache_${{ env.RUNNER_TRACKING_ID }},target=/target \
+          --mount type=volume,source=registry_cache_${{ env.RUNNER_TRACKING_ID }},target=/usr/local/cargo/registry \
+          ${{ github.event.inputs.docker_image }}
+
+    - name: check if input hash is in checksums.txt
+      run: |
+        if grep -q "${{ github.event.inputs.ref_hash }}" "$GITHUB_WORKSPACE/repo/${{ github.event.inputs.working_dir }}/artifacts/checksums.txt"; then
+          echo "Reference hash found in checksums.txt"
+        else
+          echo "Reference hash not found in checksums.txt"
+          exit 1
+        fi
