@@ -42,7 +42,7 @@ jobs:
 
     - name: check if input hash is in checksums.txt
       run: |
-        if grep -q "${{ github.event.inputs.ref_hash }}" "$GITHUB_WORKSPACE/repo/${{ github.event.inputs.working_dir }}/artifacts/checksums.txt"; then
+        if grep -q "$(echo '${{ github.event.inputs.ref_hash }}' | tr '[:upper:]' '[:lower:]')" "$GITHUB_WORKSPACE/repo/${{ github.event.inputs.working_dir }}/artifacts/checksums.txt"; then
           echo "Reference hash found in checksums.txt"
         else
           echo "Reference hash not found in checksums.txt"
